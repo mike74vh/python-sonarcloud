@@ -1,0 +1,104 @@
+name: main
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  contents: read
+  checks: write
+
+concurrency: action
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  plan:
+    name: Plan infrastructure
+    runs-on: ubuntu-latest-4-cores-static-ip
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - uses: ardian-france/devops-terraform-plan-action@v2
+        with:
+          client-id: ${{ vars.TF_CLIENT_ID }}
+          subscription-id: ${{ vars.AZ_SUBSCRIPTION_ID }}
+          tenant-id: ${{ vars.AAD_TENANT_ID }}
+          terraform-modules-token: ${{ secrets.TF_MODULES_TOKEN }}
+          terraform-version: ${{ vars.TF_VERSION }}
+          working-directory: ${{ vars.TF_WORKING_DIRECTORY }}
+  apply:
+    name: Apply infrastructure
+    runs-on: ubuntu-latest-4-cores-static-ip
+    needs: plan
+    outputs:
+      acr-name: ${{ steps.acr-name.outputs.terraform }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - uses: ardian-france/devops-terraform-apply-action@v2
+        with:
+          client-id: ${{ vars.TF_CLIENT_ID }}
+          subscription-id: ${{ vars.AZ_SUBSCRIPTION_ID }}
+          tenant-id: ${{ vars.AAD_TENANT_ID }}
+          terraform-modules-token: ${{ secrets.TF_MODULES_TOKEN }}
+          terraform-version: ${{ vars.TF_VERSION }}
+          working-directory: ${{ vars.TF_WORKING_DIRECTORY }}
+      - uses: ardian-france/devops-terraform-output-action@v1
+        id: acr-name
+        with:
+          key: acr_name
+          working-directory: ${{ vars.TF_WORKING_DIRECTORY }}
+  test-container:
+    name: Test for container
+    runs-on: ubuntu-latest
+    needs: apply
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Make CI operations for container
+        uses: ./
+        with:
+          client-id: ${{ vars.TF_CLIENT_ID }}
+          container-registry-name: ${{ needs.apply.outputs.acr-name }}
+          docker-image-name: ${{ vars.DOCKER_IMAGE_NAME }}
+          push-docker-image-pull-requests: true
+          subscription-id: ${{ vars.AZ_SUBSCRIPTION_ID }}
+          tenant-id: ${{ vars.AAD_TENANT_ID }}
+          working-directory: src
+          version: ${{ github.sha }}
+  test-code:
+    name: Test for code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Make CI operations
+        uses: ./
+        with:
+          containerized: false
+          working-directory: src
+          version: ${{ github.sha }}
+  clean:
+    name: Clean
+    runs-on: ubuntu-latest-4-cores-static-ip
+    needs:
+      - apply
+      - test-container
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - uses: ardian-france/devops-terraform-destroy-action@v1
+        if: ${{ always() }}
+        with:
+          client-id: ${{ vars.TF_CLIENT_ID }}
+          subscription-id: ${{ vars.AZ_SUBSCRIPTION_ID }}
+          tenant-id: ${{ vars.AAD_TENANT_ID }}
+          terraform-modules-token: ${{ secrets.TF_MODULES_TOKEN }}
+          terraform-version: ${{ vars.TF_VERSION }}
+          working-directory: ${{ vars.TF_WORKING_DIRECTORY }}

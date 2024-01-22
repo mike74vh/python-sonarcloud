@@ -1,0 +1,104 @@
+name: python-ci
+description: Python CI
+
+inputs:
+  client-id:
+    description: Client ID of the App Registration with access to the Azure Container Registry
+    required: false
+    type: string
+  container-registry-name:
+    description: Name of the Azure Container Registry
+    required: false
+    type: string
+  containerized:
+    description: Is the application containerized?
+    type: boolean
+    default: true
+  docker-image-name:
+    description: Name of the Docker image
+    required: false
+    type: string
+  output-dirname:
+    description: Directory name for output files
+    type: string
+    default: __output
+  push-docker-image-pull-requests:
+    description: Push Docker image during pull requests?
+    type: boolean
+    default: false
+  python-version-file:
+    description: File name of the Python version
+    type: string
+    default: .python-version
+  reports-dirname:
+    description: Directory name for reports files
+    type: string
+    default: __reports
+  subscription-id:
+    description: Subscription ID where is the Azure Container Registry
+    required: false
+    type: string
+  tenant-id:
+    description: Tenant ID of the Azure Active Directory
+    required: false
+    type: string
+  version:
+    description: Value of version
+    required: true
+    type: string
+  working-directory:
+    description: Directory of the source code
+    type: string
+    default: ./
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version-file: ${{ inputs.python-version-file }}
+    - name: Authenticate to Azure
+      if: ${{ inputs.containerized == 'true' && (github.event_name != 'pull_request' || inputs.push-docker-image-pull-requests == 'true') }}
+      uses: azure/login@v1
+      with:
+        client-id: ${{ inputs.client-id }}
+        subscription-id: ${{ inputs.subscription-id }}
+        tenant-id: ${{ inputs.tenant-id }}
+    - name: Authenticate to container registry
+      if: ${{ inputs.containerized == 'true' && (github.event_name != 'pull_request' || inputs.push-docker-image-pull-requests == 'true') }}
+      run: az acr login --name ${{ inputs.container-registry-name }}
+      shell: pwsh
+    - name: Execute `ci_install` make target
+      if: ${{ inputs.containerized == 'false' || github.event_name == 'pull_request' }}
+      run: make ci_install
+      shell: pwsh
+    - name: Execute `ci_checks` make target
+      if: ${{ inputs.containerized == 'false' || github.event_name == 'pull_request' }}
+      run: make ci_checks
+      shell: pwsh
+    - name: Execute `ci_tests` make target
+      if: ${{ inputs.containerized == 'false' || github.event_name == 'pull_request' }}
+      run: make ci_tests
+      shell: pwsh
+    - name: Define Docker image tag
+      if: ${{ inputs.containerized == 'true' && (github.event_name != 'pull_request' || inputs.push-docker-image-pull-requests == 'true') }}
+      run: |-
+        echo "DOCKER_IMAGE_TAG=${{ inputs.version }}" >> $Env:GITHUB_ENV
+      shell: pwsh
+    - name: Build Docker image
+      if: ${{ inputs.containerized == 'true' }}
+      run: |-
+        docker build . -t ${{ inputs.container-registry-name }}.azurecr.io/${{ inputs.docker-image-name }}:${{ env.DOCKER_IMAGE_TAG }}
+      shell: pwsh
+    - name: Push Docker image
+      if: ${{ inputs.containerized == 'true' && (github.event_name != 'pull_request' || inputs.push-docker-image-pull-requests == 'true') }}
+      run: |-
+        docker push ${{ inputs.container-registry-name }}.azurecr.io/${{ inputs.docker-image-name }}:${{ env.DOCKER_IMAGE_TAG }}
+      shell: pwsh
+    - name: Upload publish output
+      if: ${{ inputs.containerized == 'false' }}
+      uses: actions/upload-artifact@v3
+      with:
+        name: output
+        path: ${{ inputs.working-directory }}
