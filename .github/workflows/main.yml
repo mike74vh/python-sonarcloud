@@ -84,9 +84,11 @@ jobs:
       # dotnet test -c Release --results-directory __reports --logger:"junit;LogFileName={assembly}.unittests.junit.xml" --verbosity normal --collect:"XPlat Code Coverage;Format=cobertura"
 
       - name: Build and analyze
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
           make ci_tests
-          sonar-scanner --define sonar.host.url="https://sonarcloud.io" --define sonar.token="${{ secrets.SONAR_TOKEN }}"
+          sonar-scanner --define sonar.host.url="https://sonarcloud.io"
 
 # - name: Install SonarCloud scanner
 #   run: dotnet tool install --global dotnet-sonarscanner --version 6.0.0
