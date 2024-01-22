@@ -85,6 +85,7 @@ jobs:
 
       - name: Build and analyze
         run: |
+          make ci_tests
           sonar-scanner --define sonar.host.url="https://sonarcloud.io" --define sonar.token="${{ secrets.SONAR_TOKEN }}"
 
 # - name: Install SonarCloud scanner
